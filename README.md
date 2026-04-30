@@ -1,60 +1,55 @@
 # hypr-workspace-history
 
-Per-monitor MRU workspace history for Hyprland, modeled after the old XMonad
-`CycleWorkspaceByScreen` setup.
+Hyprland plugin for per-monitor MRU workspace history cycling.
 
-The daemon watches Hyprland's event socket, records the active workspace for
-each monitor, and exposes small commands for keybindings:
-
-- `cycle next` previews the next less-recent workspace for the active monitor.
-- `cycle prev` previews in the opposite direction.
-- `commit` ends the preview session and updates history once.
-- `cancel` returns to the workspace where the preview started.
-
-During a cycle session the daemon freezes the original history. That keeps
-previewed workspaces from becoming "recent" until the modifier key is released,
-matching the important XMonad behavior.
+It records workspace transitions with Hyprland workspace hooks, freezes the
+history while cycling, and commits the previewed workspace when the Super/Meta
+modifier is actually released via Hyprland's keyboard event bus.
 
 ## Build
 
 ```sh
-cargo build --release
+nix build
 ```
 
-## Hyprland Bindings
-
-Start the daemon once in your Hyprland session:
-
-```hyprlang
-exec-once = hypr-workspace-history daemon
-```
-
-Use the command client from bindings:
-
-```hyprlang
-bind = SUPER, backslash, exec, hypr-workspace-history cycle next
-bind = SUPER, slash, exec, hypr-workspace-history cycle prev
-bindr = SUPER, Super_L, exec, hypr-workspace-history commit
-bind = SUPER SHIFT, backslash, exec, hypr-workspace-history cancel
-```
-
-`bindr` is the key input trick: Hyprland handles the physical key release, and
-the daemon handles the frozen MRU session. If your Super key is not `Super_L`,
-bind the release command to the physical modifier key you actually hold.
-
-You can print the same snippet with:
+or:
 
 ```sh
-hypr-workspace-history bindings
+cmake -S . -B build
+cmake --build build
 ```
 
-## State
+## Lua Config
 
-History is persisted at:
+Load the plugin:
+
+```lua
+hl.plugin.load("/path/to/libhypr-workspace-history.so")
+```
+
+Use the Lua functions from keybindings:
+
+```lua
+bind("SUPER + backslash", function()
+  hl.plugin.workspacehistory.cycle(1)
+end)
+
+bind("SUPER + slash", function()
+  hl.plugin.workspacehistory.cycle(-1)
+end)
+
+bind("SUPER + Escape", function()
+  hl.plugin.workspacehistory.cancel()
+end)
+```
+
+No release bind is needed. The plugin listens for Super/Meta release directly.
+
+## Debug State
+
+The plugin writes a compact snapshot for status widgets/debugging:
 
 ```text
-$XDG_STATE_HOME/hypr-workspace-history/state.json
+$XDG_RUNTIME_DIR/hyprland-workspace-history-state
+$XDG_RUNTIME_DIR/hyprland-workspace-history.log
 ```
-
-or `~/.local/state/hypr-workspace-history/state.json` when `XDG_STATE_HOME` is
-unset.
