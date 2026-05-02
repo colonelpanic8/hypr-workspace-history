@@ -47,9 +47,26 @@ No release bind is needed. The plugin listens for Super/Meta release directly.
 
 ## Debug State
 
-The plugin writes a compact snapshot for status widgets/debugging:
+The plugin writes a versioned JSON snapshot for status widgets and a compact
+text snapshot for debugging:
 
 ```text
+$XDG_RUNTIME_DIR/hyprland-workspace-history.json
 $XDG_RUNTIME_DIR/hyprland-workspace-history-state
 $XDG_RUNTIME_DIR/hyprland-workspace-history.log
+```
+
+The JSON file is written atomically and is intended to be watched with inotify:
+
+```json
+{
+  "version": 1,
+  "revision": 42,
+  "active_monitor": "DP-1",
+  "active_workspace": 3,
+  "monitors": {
+    "DP-1": { "history": [3, 1, 8] }
+  },
+  "cycle": null
+}
 ```

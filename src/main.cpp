@@ -13,6 +13,8 @@
 #include <lua.hpp>
 
 #include <algorithm>
+#include <cstdint>
+#include <cstdio>
 #include <ctime>
 #include <fstream>
 #include <iomanip>
@@ -132,8 +134,13 @@ class CWorkspaceHistory {
     }
 
     std::string snapshot(const std::string& reason) const {
+        return snapshotText(reason, m_revision);
+    }
+
+    std::string snapshotText(const std::string& reason, uint64_t revision) const {
         std::stringstream out;
         out << "reason=" << reason << "\n";
+        out << "revision=" << revision << "\n";
 
         const auto monitor = Desktop::focusState() ? Desktop::focusState()->monitor() : nullptr;
         const auto workspace = monitor ? monitor->m_activeWorkspace : nullptr;
@@ -169,6 +176,53 @@ class CWorkspaceHistory {
         return out.str();
     }
 
+    std::string snapshotJson(const std::string& reason, uint64_t revision) const {
+        std::stringstream out;
+
+        const auto monitor = Desktop::focusState() ? Desktop::focusState()->monitor() : nullptr;
+        const auto workspace = monitor ? monitor->m_activeWorkspace : nullptr;
+
+        out << "{";
+        out << "\"version\":1";
+        out << ",\"revision\":" << revision;
+        out << ",\"reason\":" << jsonString(reason);
+        out << ",\"active_monitor\":" << jsonString(monitorKey(monitor));
+        out << ",\"active_workspace\":";
+        if (workspace)
+            out << workspace->m_id;
+        else
+            out << "null";
+
+        out << ",\"monitors\":{";
+        bool firstMonitor = true;
+        for (const auto& [key, history] : m_histories) {
+            if (!firstMonitor)
+                out << ",";
+            firstMonitor = false;
+            out << jsonString(key) << ":{\"history\":";
+            writeJsonIntArray(out, history);
+            out << "}";
+        }
+        out << "}";
+
+        out << ",\"cycle\":";
+        if (m_cycle) {
+            out << "{";
+            out << "\"monitor\":" << jsonString(m_cycle->monitorKey);
+            out << ",\"original\":" << m_cycle->originalWorkspace;
+            out << ",\"preview\":" << m_cycle->previewWorkspace;
+            out << ",\"next_index\":" << (m_cycle->nextIndex + 1);
+            out << ",\"history\":";
+            writeJsonIntArray(out, m_cycle->history);
+            out << "}";
+        } else {
+            out << "null";
+        }
+
+        out << "}\n";
+        return out.str();
+    }
+
     void showDebug() const {
         HyprlandAPI::addNotification(PHANDLE, snapshot("notification"), CHyprColor{0.4, 0.8, 1.0, 1.0}, 6000);
     }
@@ -176,6 +230,7 @@ class CWorkspaceHistory {
   private:
     std::map<std::string, std::vector<int>> m_histories;
     std::optional<SCycleState>              m_cycle;
+    mutable uint64_t                        m_revision = 0;
 
     static std::optional<int> workspaceID(PHLWORKSPACE workspace) {
         if (!workspace || workspace->m_id < 1 || workspace->m_id > MAX_WORKSPACE)
@@ -290,16 +345,68 @@ class CWorkspaceHistory {
         return std::string(runtimeDir) + "/" + name;
     }
 
+    static std::string jsonString(const std::string& value) {
+        std::stringstream out;
+        out << '"';
+        for (const char ch : value) {
+            switch (ch) {
+                case '"': out << "\\\""; break;
+                case '\\': out << "\\\\"; break;
+                case '\b': out << "\\b"; break;
+                case '\f': out << "\\f"; break;
+                case '\n': out << "\\n"; break;
+                case '\r': out << "\\r"; break;
+                case '\t': out << "\\t"; break;
+                default:
+                    if (static_cast<unsigned char>(ch) < 0x20) {
+                        out << "\\u" << std::hex << std::setw(4) << std::setfill('0') << static_cast<int>(static_cast<unsigned char>(ch)) << std::dec
+                            << std::setfill(' ');
+                    } else {
+                        out << ch;
+                    }
+            }
+        }
+        out << '"';
+        return out.str();
+    }
+
+    static void writeJsonIntArray(std::stringstream& out, const std::vector<int>& values) {
+        out << "[";
+        for (size_t i = 0; i < values.size(); ++i) {
+            if (i > 0)
+                out << ",";
+            out << values[i];
+        }
+        out << "]";
+    }
+
+    static void writeFileAtomic(const std::string& path, const std::string& body) {
+        const auto tmpPath = path + ".tmp";
+
+        {
+            std::ofstream tmp(tmpPath, std::ios::trunc);
+            if (!tmp)
+                return;
+            tmp << body;
+            tmp.flush();
+            if (!tmp)
+                return;
+        }
+
+        std::rename(tmpPath.c_str(), path.c_str());
+    }
+
     void writeDebug(const std::string& reason) const {
         const auto statePath = runtimePath("hyprland-workspace-history-state");
+        const auto jsonPath  = runtimePath("hyprland-workspace-history.json");
         const auto logPath   = runtimePath("hyprland-workspace-history.log");
-        if (!statePath || !logPath)
+        if (!statePath || !jsonPath || !logPath)
             return;
 
-        const auto body = snapshot(reason);
-        std::ofstream state(*statePath, std::ios::trunc);
-        if (state)
-            state << body;
+        const auto revision = ++m_revision;
+        const auto body = snapshotText(reason, revision);
+        writeFileAtomic(*statePath, body);
+        writeFileAtomic(*jsonPath, snapshotJson(reason, revision));
 
         std::ofstream log(*logPath, std::ios::app);
         if (log) {
