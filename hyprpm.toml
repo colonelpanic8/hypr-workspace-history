@@ -1,6 +1,10 @@
 [repository]
 name = "hypr-workspace-history"
 authors = ["Ivan Malison"]
+commit_pins = [
+    # Hyprland v0.56.0                          hypr-workspace-history v0.1.0
+    ["36b2e0cfe0c6094dbc47bd42a437431315bb3087", "9c8d04765bf905a1d2f0ff6675a3f166b801c90e"],
+]
 
 [hypr-workspace-history]
 description = "Per-monitor MRU workspace history cycling for Hyprland"
