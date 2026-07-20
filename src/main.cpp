@@ -6,9 +6,10 @@
 #include <hyprland/src/desktop/state/FocusState.hpp>
 #include <hyprland/src/devices/IKeyboard.hpp>
 #include <hyprland/src/event/EventBus.hpp>
-#include <hyprland/src/helpers/Monitor.hpp>
 #include <hyprland/src/managers/KeybindManager.hpp>
+#include <hyprland/src/output/Monitor.hpp>
 #include <hyprland/src/plugins/PluginAPI.hpp>
+#include <hyprland/src/state/MonitorState.hpp>
 
 #include <lua.hpp>
 
@@ -44,7 +45,7 @@ class CWorkspaceHistory {
         if (!g_pCompositor)
             return;
 
-        for (const auto& monitor : g_pCompositor->m_monitors) {
+        for (const auto& monitor : State::monitorState()->monitors()) {
             if (monitor && monitor->m_activeWorkspace)
                 remember(monitor->m_activeWorkspace);
         }
