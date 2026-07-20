@@ -1,0 +1,12 @@
+[repository]
+name = "hypr-workspace-history"
+authors = ["Ivan Malison"]
+
+[hypr-workspace-history]
+description = "Per-monitor MRU workspace history cycling for Hyprland"
+authors = ["Ivan Malison"]
+output = "build/libhypr-workspace-history.so"
+build = [
+    "cmake -S . -B build -DCMAKE_BUILD_TYPE=Release",
+    "cmake --build build --target hypr-workspace-history",
+]

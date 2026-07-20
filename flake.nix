@@ -21,6 +21,11 @@
         localSystem.system = system;
         overlays = [hyprland.overlays.hyprland-packages];
       });
+    hyprpmManifest = builtins.fromTOML (builtins.readFile ./hyprpm.toml);
+    hyprpmBuildCommands = lib.concatMapStringsSep "\n" (command: ''
+      cd "$repoRoot"
+      ${command}
+    '') hyprpmManifest.hypr-workspace-history.build;
   in {
     packages = eachSystem (system: let
       pkgs = pkgsFor.${system};
@@ -47,8 +52,43 @@
       hypr-workspace-history = self.packages.${system}.default;
     });
 
-    checks = eachSystem (system: {
+    checks = eachSystem (system: let
+      pkgs = pkgsFor.${system};
+      hyprlandPkg = hyprland.packages.${system}.hyprland;
+      src = builtins.path {
+        path = ./.;
+        name = "hypr-workspace-history-source";
+      };
+    in {
       hypr-workspace-history = self.packages.${system}.default;
+
+      hyprpm-build = pkgs.gcc15Stdenv.mkDerivation {
+        pname = "hypr-workspace-history-hyprpm-build-check";
+        version = "0.1.0";
+        inherit src;
+
+        inherit (hyprlandPkg) nativeBuildInputs;
+        buildInputs = [hyprlandPkg] ++ hyprlandPkg.buildInputs;
+
+        dontConfigure = true;
+
+        buildPhase = ''
+          runHook preBuild
+          repoRoot="$PWD"
+          test ${lib.escapeShellArg hyprpmManifest.repository.name} = hypr-workspace-history
+          test ${lib.escapeShellArg hyprpmManifest.hypr-workspace-history.output} = build/libhypr-workspace-history.so
+          ${hyprpmBuildCommands}
+          test -f ${lib.escapeShellArg hyprpmManifest.hypr-workspace-history.output}
+          runHook postBuild
+        '';
+
+        installPhase = ''
+          runHook preInstall
+          mkdir -p "$out"
+          cp ${lib.escapeShellArg hyprpmManifest.hypr-workspace-history.output} "$out/"
+          runHook postInstall
+        '';
+      };
     });
 
     devShells = eachSystem (system: let

@@ -19,6 +19,17 @@ cmake -S . -B build
 cmake --build build
 ```
 
+## Install With hyprpm
+
+```sh
+hyprpm add https://github.com/colonelpanic8/hypr-workspace-history
+hyprpm enable hypr-workspace-history
+hyprpm reload
+```
+
+On Nix systems, hyprpm uses this repository's flake development shell by
+default.
+
 ## Lua Config
 
 Load the plugin:
