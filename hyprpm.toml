@@ -4,6 +4,12 @@ authors = ["Ivan Malison"]
 commit_pins = [
     # Hyprland v0.56.0                          hypr-workspace-history v0.1.0
     ["36b2e0cfe0c6094dbc47bd42a437431315bb3087", "9c8d04765bf905a1d2f0ff6675a3f166b801c90e"],
+    # Hyprland v0.56.1                          hypr-workspace-history v0.1.0
+    ["5c9377c15f85c50648f35ca5a213754f95b93ca0", "9c8d04765bf905a1d2f0ff6675a3f166b801c90e"],
+    # Hyprland v0.56.2                          hypr-workspace-history v0.1.0
+    ["efb50993780079460b0cbed1363e2166a2de1d9f", "9c8d04765bf905a1d2f0ff6675a3f166b801c90e"],
+    # Hyprland v0.57.0                          hypr-workspace-history v0.1.0
+    ["0aa6745f705f2c4b0a5004eb019ef76e5bbdb426", "b5c0ae845d86eee6597d966eb1d13aed6548d474"],
 ]
 
 [hypr-workspace-history]
