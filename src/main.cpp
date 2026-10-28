@@ -1,16 +1,18 @@
 #define WLR_USE_UNSTABLE
 
 #include <hyprland/src/Compositor.hpp>
+#include <hyprland/src/config/shared/actions/ConfigActions.hpp>
 #include <hyprland/src/debug/log/Logger.hpp>
-#include <hyprland/src/desktop/Workspace.hpp>
 #include <hyprland/src/desktop/state/FocusState.hpp>
 #include <hyprland/src/devices/IKeyboard.hpp>
 #include <hyprland/src/event/EventBus.hpp>
-#include <hyprland/src/managers/KeybindManager.hpp>
 #include <hyprland/src/output/Monitor.hpp>
 #include <hyprland/src/plugins/PluginAPI.hpp>
 #include <hyprland/src/state/MonitorState.hpp>
+#include <hyprland/src/state/workspace/State.hpp>
+#include <hyprland/src/workspace/HLWorkspace.hpp>
 
+#include <linux/input-event-codes.h>
 #include <lua.hpp>
 
 #include <algorithm>
@@ -127,10 +129,10 @@ class CWorkspaceHistory {
     }
 
     void onKey(IKeyboard::SKeyEvent event) {
-        if (!m_cycle || event.state != WL_KEYBOARD_KEY_STATE_RELEASED || !g_pKeybindManager)
+        if (!m_cycle || event.state != WL_KEYBOARD_KEY_STATE_RELEASED)
             return;
 
-        if (g_pKeybindManager->keycodeToModifier(event.keycode + 8) == HL_MODIFIER_META)
+        if (event.keycode == KEY_LEFTMETA || event.keycode == KEY_RIGHTMETA)
             commit();
     }
 
@@ -146,7 +148,8 @@ class CWorkspaceHistory {
         const auto monitor = Desktop::focusState() ? Desktop::focusState()->monitor() : nullptr;
         const auto workspace = monitor ? monitor->m_activeWorkspace : nullptr;
         out << "active_monitor=" << monitorKey(monitor) << "\n";
-        out << "active_workspace=" << (workspace ? std::to_string(workspace->m_id) : "?") << "\n";
+        const auto workspaceId = workspace ? workspace->numberedID() : std::nullopt;
+        out << "active_workspace=" << (workspaceId ? std::to_string(*workspaceId) : "?") << "\n";
 
         for (const auto& [key, history] : m_histories) {
             out << "history." << key << "=";
@@ -189,8 +192,8 @@ class CWorkspaceHistory {
         out << ",\"reason\":" << jsonString(reason);
         out << ",\"active_monitor\":" << jsonString(monitorKey(monitor));
         out << ",\"active_workspace\":";
-        if (workspace)
-            out << workspace->m_id;
+        if (const auto workspaceId = workspace ? workspace->numberedID() : std::nullopt)
+            out << *workspaceId;
         else
             out << "null";
 
@@ -234,10 +237,11 @@ class CWorkspaceHistory {
     mutable uint64_t                        m_revision = 0;
 
     static std::optional<int> workspaceID(PHLWORKSPACE workspace) {
-        if (!workspace || workspace->m_id < 1 || workspace->m_id > MAX_WORKSPACE)
+        const auto workspaceId = workspace ? workspace->numberedID() : std::nullopt;
+        if (!workspaceId || *workspaceId < 1 || *workspaceId > MAX_WORKSPACE)
             return std::nullopt;
 
-        return workspace->m_id;
+        return static_cast<int>(*workspaceId);
     }
 
     static std::string monitorKey(PHLMONITOR monitor) {
@@ -328,14 +332,24 @@ class CWorkspaceHistory {
     }
 
     static SDispatchResult focusWorkspace(int workspace) {
-        if (!g_pKeybindManager)
-            return {.success = false, .error = "keybind manager is unavailable"};
+        const auto monitor = Desktop::focusState() ? Desktop::focusState()->monitor() : nullptr;
+        if (!monitor)
+            return {.success = false, .error = "no focused monitor"};
 
-        const auto dispatcher = g_pKeybindManager->m_dispatchers.find("focusworkspaceoncurrentmonitor");
-        if (dispatcher == g_pKeybindManager->m_dispatchers.end())
-            return {.success = false, .error = "focusworkspaceoncurrentmonitor dispatcher is unavailable"};
+        const auto id     = Workspace::SWorkspaceNumberedID{static_cast<Workspace::WorkspaceIDContainer>(workspace)};
+        auto       target = State::Workspace::state()->query().numbered(id).run();
+        if (!target)
+            target = State::Workspace::state()->createNumbered(id, monitor, "", false);
+        if (!target)
+            return {.success = false, .error = "workspace " + std::to_string(workspace) + " is unavailable"};
 
-        return dispatcher->second(std::to_string(workspace));
+        // The string overload would apply binds:workspace_back_and_forth.
+        const auto result = Config::Actions::changeWorkspaceOnCurrentMonitor(target);
+        target->ready();
+        if (!result)
+            return {.success = false, .error = result.error().message};
+
+        return {.passEvent = result->passEvent};
     }
 
     static std::optional<std::string> runtimePath(const std::string& name) {
@@ -420,26 +434,6 @@ class CWorkspaceHistory {
 
 CWorkspaceHistory g_workspaceHistory;
 
-SDispatchResult dispatchCycle(std::string arg) {
-    int direction = 1;
-    if (arg == "-1" || arg == "previous" || arg == "prev" || arg == "reverse")
-        direction = -1;
-    return g_workspaceHistory.cycle(direction);
-}
-
-SDispatchResult dispatchCommit(std::string) {
-    return g_workspaceHistory.commit();
-}
-
-SDispatchResult dispatchCancel(std::string) {
-    return g_workspaceHistory.cancel();
-}
-
-SDispatchResult dispatchDebug(std::string) {
-    g_workspaceHistory.showDebug();
-    return {};
-}
-
 int luaCycle(lua_State* L) {
     const auto result = g_workspaceHistory.cycle(static_cast<int>(luaL_optinteger(L, 1, 1)));
     if (!result.success)
@@ -495,10 +489,6 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
             g_workspaceHistory.observe(monitor->m_activeWorkspace);
     });
 
-    HyprlandAPI::addDispatcherV2(PHANDLE, "workspacehistory:cycle", ::dispatchCycle);
-    HyprlandAPI::addDispatcherV2(PHANDLE, "workspacehistory:commit", ::dispatchCommit);
-    HyprlandAPI::addDispatcherV2(PHANDLE, "workspacehistory:cancel", ::dispatchCancel);
-    HyprlandAPI::addDispatcherV2(PHANDLE, "workspacehistory:debug", ::dispatchDebug);
     HyprlandAPI::addLuaFunction(PHANDLE, "workspacehistory", "cycle", ::luaCycle);
     HyprlandAPI::addLuaFunction(PHANDLE, "workspacehistory", "commit", ::luaCommit);
     HyprlandAPI::addLuaFunction(PHANDLE, "workspacehistory", "cancel", ::luaCancel);
